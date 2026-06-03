@@ -74,7 +74,7 @@ static constexpr uint32_t EMSG_CLIENT_PICSPRODUCTINFO = 8903;
 //   a5 ([rsp+28h]) = output depot vector (DLC/shared depots)
 // Depot vectors: *(QWORD*)vec = array base, *(int*)(vec+16) = count
 // Each entry is 32 bytes: {uint32 depotId, uint32 appId, uint64 manifestId, ...}
-static constexpr uintptr_t SC_RVA_BUILD_DEPOT_DEPENDENCY = 0x4AC7B0;
+static constexpr uintptr_t SC_RVA_BUILD_DEPOT_DEPENDENCY = 0x4AC910;
 
 static constexpr size_t SC_BDD_STOLEN_BYTES = 14;  // first 14 bytes of prologue
 
@@ -4158,18 +4158,15 @@ void InstallManifestPinHook() {
         g_bddOrigAddr, hSteamClient, SC_RVA_BUILD_DEPOT_DEPENDENCY);
 
     // Verify the prologue bytes match what we expect from IDA:
-    // 40 53                push rbx
-    // 55                   push rbp
-    // 56                   push rsi
-    // 57                   push rdi
-    // 48 83 EC 28          sub rsp, 28h
-    // 48 83 B9 F0 00       cmp qword ptr [rcx+F0h], ...
+    // 48 8B C4             mov rax, rsp
+    // 4C 89 48 20          mov [rax+20h], r9
+    // 89 50 10             mov [rax+10h], edx
+    // 48 89 48 08          mov [rax+8], rcx
     static const uint8_t expectedPrologue[SC_BDD_STOLEN_BYTES] = {
-        0x40, 0x53,                    // push rbx
-        0x55,                          // push rbp
-        0x56,                          // push rsi
-        0x57,                          // push rdi
-        0x48, 0x83, 0xEC, 0x28,        // sub rsp, 28h
+        0x48, 0x8B, 0xC4,              // mov rax, rsp
+        0x4C, 0x89, 0x48, 0x20,        // mov [rax+20h], r9
+        0x89, 0x50, 0x10,              // mov [rax+10h], edx
+        0x48, 0x89, 0x48, 0x08         // mov [rax+8], rcx
         0x48, 0x83, 0xB9, 0xF0, 0x00  // cmp qword ptr [rcx+F0h], ...
     };
     if (memcmp(g_bddOrigAddr, expectedPrologue, SC_BDD_STOLEN_BYTES) != 0) {
