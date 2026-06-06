@@ -576,12 +576,14 @@ static std::vector<AutoCloudRuleNative> LoadAutoCloudRules(const std::string& st
 
 // SHA1 for files
 
-// Whole-file SHA1; rejects negative size from a stat race.
-static std::vector<uint8_t> SHA1File(const std::string& path) {
+// Read a whole file and compute its SHA1 in one pass; returns the bytes in
+// outBytes so the caller can avoid a second read at commit time.
+static std::vector<uint8_t> ReadAndHashFile(const std::string& path,
+                                            std::vector<uint8_t>& outBytes) {
+    outBytes.clear();
     std::ifstream f(FileUtil::Utf8ToPath(path), std::ios::binary);
     if (!f) return {};
 
-    // Read entire file and hash it
     f.seekg(0, std::ios::end);
     auto size = f.tellg();
     if (size < 0) {
@@ -589,10 +591,12 @@ static std::vector<uint8_t> SHA1File(const std::string& path) {
     }
     f.seekg(0);
     std::vector<uint8_t> buf(static_cast<size_t>(size));
-    if (!f.read(reinterpret_cast<char*>(buf.data()), size)) {
+    if (!buf.empty() && !f.read(reinterpret_cast<char*>(buf.data()), size)) {
         return {};  // Empty vector signals error
     }
-    return FileUtil::SHA1(buf.data(), buf.size());
+    auto sha = FileUtil::SHA1(buf.data(), buf.size());
+    outBytes = std::move(buf);
+    return sha;
 }
 
 } // anonymous namespace
@@ -631,6 +635,10 @@ ScanResult GetFileList(const std::string& steamPath,
     std::filesystem::path appUserdataDir = FileUtil::Utf8ToPath(steamPath) / "userdata" /
         std::to_string(accountId) / std::to_string(appId);
 
+    // Retain hashed bytes (up to a budget) so commit needn't re-read from disk.
+    constexpr uint64_t kMaxRetainedContentBytes = 512ULL * 1024 * 1024;
+    uint64_t retainedContentBytes = 0;
+
     auto addFile = [&](const std::filesystem::directory_entry& fileEntry,
                        const std::string& cloudPath,
                        const std::string& sourcePath,
@@ -643,7 +651,8 @@ ScanResult GetFileList(const std::string& steamPath,
         uint64_t rawSize = (uint64_t)fileEntry.file_size(ec);
         if (ec) return;
 
-        auto sha = SHA1File(FileUtil::PathToUtf8(fileEntry.path()));
+        std::vector<uint8_t> bytes;
+        auto sha = ReadAndHashFile(FileUtil::PathToUtf8(fileEntry.path()), bytes);
         if (sha.empty()) {
             LOG("GetAutoCloudFileList: skipping app %u file %s (SHA1 read error)",
                 appId, sourcePath.c_str());
@@ -661,6 +670,10 @@ ScanResult GetFileList(const std::string& steamPath,
         fe.rootToken = rootToken;
         fe.rootId = rootId;
         fe.sha = std::move(sha);
+        if (retainedContentBytes + bytes.size() <= kMaxRetainedContentBytes) {
+            retainedContentBytes += bytes.size();
+            fe.content = std::move(bytes);
+        }
         outResult.files.push_back(std::move(fe));
     };
 

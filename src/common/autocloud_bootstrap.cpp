@@ -285,11 +285,15 @@ static void BootstrapWorker(uint32_t accountId, uint32_t appId, uint64_t cacheGe
         std::string rootToken;
         bool refresh = false;
         std::vector<uint8_t> expectedSha;
+        // hasContent: scan retained these bytes, so commit stores them without a
+        // re-read (distinguishes a captured zero-byte file from an unread one).
+        bool hasContent = false;
+        std::vector<uint8_t> content;
     };
     std::vector<PendingImport> pendingImports;
     bool tokenMetadataChanged = false;
 
-    for (const auto& fe : candidates) {
+    for (auto& fe : candidates) {
         if (IsShuttingDownInternal()) {
             LOG("[AutoCloudImport] Aborting existence checks for app %u -- shutdown in progress", appId);
             ClearCanonicalTokens(accountId, appId, cacheGeneration);
@@ -352,7 +356,11 @@ static void BootstrapWorker(uint32_t accountId, uint32_t appId, uint64_t cacheGe
             }
         }
 
-        pendingImports.push_back({ fe.relativePath, fe.fullPath, fe.modifiedTime, fe.rootToken, isRefresh, fe.sha });
+        // Captured iff retained bytes equal the file size (covers zero-byte files).
+        const bool captured = (fe.content.size() == fe.size);
+        pendingImports.push_back({ fe.relativePath, fe.fullPath, fe.modifiedTime,
+                                   fe.rootToken, isRefresh, fe.sha,
+                                   captured, std::move(fe.content) });
     }
 
     if (pendingImports.empty() && !tokenMetadataChanged) {
@@ -403,25 +411,34 @@ static void BootstrapWorker(uint32_t accountId, uint32_t appId, uint64_t cacheGe
             continue;
         }
 
-        bool readOk = false;
-        auto data = ReadWholeFile(pending.sourcePath, readOk);
-        if (!readOk) {
-            LOG("[AutoCloudImport] Failed to read source before commit for app %u: %s",
-                appId, pending.sourcePath.c_str());
-            continue;
-        }
-
-        const uint8_t* ptr = data.empty() ? nullptr : data.data();
         if (pending.expectedSha.empty()) {
             LOG("[AutoCloudImport] Skipping app %u file %s: no SHA from scan",
                 appId, pending.filename.c_str());
             continue;
         }
-        if (LocalStorage::SHA1(ptr, data.size()) != pending.expectedSha) {
-            LOG("[AutoCloudImport] Skipping app %u file %s: source content changed between scan and commit",
-                appId, pending.filename.c_str());
-            continue;
+
+        std::vector<uint8_t> data;
+        if (pending.hasContent) {
+            // Use the bytes captured at scan time; matches expectedSha by construction.
+            data = std::move(pending.content);
+        } else {
+            // Not retained: re-read and re-verify against the scan SHA.
+            bool readOk = false;
+            data = ReadWholeFile(pending.sourcePath, readOk);
+            if (!readOk) {
+                LOG("[AutoCloudImport] Failed to read source before commit for app %u: %s",
+                    appId, pending.sourcePath.c_str());
+                continue;
+            }
+            const uint8_t* vptr = data.empty() ? nullptr : data.data();
+            if (LocalStorage::SHA1(vptr, data.size()) != pending.expectedSha) {
+                LOG("[AutoCloudImport] Skipping app %u file %s: source content changed between scan and commit",
+                    appId, pending.filename.c_str());
+                continue;
+            }
         }
+
+        const uint8_t* ptr = data.empty() ? nullptr : data.data();
 
         if (!CloudStorage::StoreBlob(accountId, appId, pending.filename, ptr, data.size())) {
             LOG("[AutoCloudImport] Failed to cache app %u file %s", appId, pending.filename.c_str());
