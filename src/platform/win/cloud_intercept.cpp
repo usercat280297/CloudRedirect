@@ -781,6 +781,10 @@ void SetAccountId(uint32_t accountId) {
     // SteamID: universe=1, type=1, instance=1
     uint64_t steamId = (uint64_t)accountId | (1ULL << 32) | (1ULL << 52) | (1ULL << 56);
     g_steamId.store(steamId, std::memory_order_relaxed);
+    // Unblock disk reads immediately so GetPlaytime can serve from the
+    // local cache before the cloud pull finishes.
+    if (accountId != 0)
+        StatsStore::ResetForAccountSwitch(accountId);
 }
 
 // recursion guard
@@ -6263,6 +6267,10 @@ static void InstallExitProcessHook() {
     }
     LOG("InstallExitProcessHook: patched %d module IAT slot(s) for ExitProcess (orig=%p hook=%p)",
         patchedModules, origAddr, hookAddr);
+}
+
+void DrainPlaytimeUpdates() {
+    DrainPlaytimeUpdateQueueOnNetThread();
 }
 
 // Shutdown entry points: ExitProcess IAT hook (production) and DllMain

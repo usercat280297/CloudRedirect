@@ -13,6 +13,7 @@
 #include <cstring>
 #include <thread>
 #include <unordered_set>
+#include <condition_variable>
 
 namespace fs = std::filesystem;
 
@@ -72,6 +73,11 @@ static SchemaMissingCallback g_schemaMissingCb;
 // True for apps we manage; reconcile seeds their playtime from localconfig.vdf.
 static NamespacePredicate g_isNamespaceApp;
 
+// Seed completion signal: set true once SeedApps finishes loading cloud blob + stats.
+static std::atomic<bool> g_seedDone{false};
+static std::mutex g_seedMutex;
+static std::condition_variable g_seedCv;
+
 // Persist to disk; pushCloud=false writes locally only (used by startup reconcile).
 static void WriteAppStats(uint32_t appId, const AppStats& stats, bool pushCloud,
                           bool bypassDiskMerge = false);
@@ -118,22 +124,28 @@ static bool RefreshCloudBlobCache() {
         if (fetched.size() != before)
             LOG("[Stats] Cloud blob decontamination: %zu -> %zu app(s)", before, fetched.size());
     }
+    static bool firstRefresh = true;
+    size_t prevCount = g_cloudBlobByApp.size();
     g_cloudBlobByApp = std::move(fetched);
     g_cloudBlobMerged.clear();
-    LOG("[Stats] Cloud blob refreshed: %zu app(s)", g_cloudBlobByApp.size());
-    for (const auto& [appId, json] : g_cloudBlobByApp) {
-        AppStats cs;
-        if (!ParseAppStatsJson(json, cs)) {
-            LOG("[Stats]   cloud[%u]: PARSE FAILED (%zu bytes)", appId, json.size());
-            continue;
+    if (firstRefresh || g_cloudBlobByApp.size() != prevCount)
+        LOG("[Stats] Cloud blob refreshed: %zu app(s)", g_cloudBlobByApp.size());
+    if (firstRefresh) {
+        for (const auto& [appId, json] : g_cloudBlobByApp) {
+            AppStats cs;
+            if (!ParseAppStatsJson(json, cs)) {
+                LOG("[Stats]   cloud[%u]: PARSE FAILED (%zu bytes)", appId, json.size());
+                continue;
+            }
+            size_t unlocked = 0;
+            for (const auto& a : cs.achievements)
+                for (int i = 0; i < 32; i++) if (a.unlockTimes[i]) unlocked++;
+            if (!cs.achievements.empty() || !cs.stats.empty() || cs.playtime.minutesForever)
+                LOG("[Stats]   cloud[%u]: ach_blocks=%zu unlocked=%zu stats=%zu schema=%zuB forever=%umin",
+                    appId, cs.achievements.size(), unlocked, cs.stats.size(),
+                    cs.schema.size(), cs.playtime.minutesForever);
         }
-        size_t unlocked = 0;
-        for (const auto& a : cs.achievements)
-            for (int i = 0; i < 32; i++) if (a.unlockTimes[i]) unlocked++;
-        if (!cs.achievements.empty() || !cs.stats.empty() || cs.playtime.minutesForever)
-            LOG("[Stats]   cloud[%u]: ach_blocks=%zu unlocked=%zu stats=%zu schema=%zuB forever=%umin",
-                appId, cs.achievements.size(), unlocked, cs.stats.size(),
-                cs.schema.size(), cs.playtime.minutesForever);
+        firstRefresh = false;
     }
     return true;
 }
@@ -641,6 +653,7 @@ bool ResetForAccountSwitch(uint32_t newAccountId) {
     g_activeSessions.clear();
     g_resetApps.clear();
     g_accountBlobDirty = false;
+    g_seedDone.store(false, std::memory_order_release);
     g_lastSeenAccountId = newAccountId;
     g_diskAccountId = newAccountId;
     EnsureAccountDir();
@@ -690,9 +703,9 @@ static bool ImportNativeStats(uint32_t appId, AppStats& out) {
     std::ifstream f(statsPath, std::ios::binary);
     // No native blob but schema loaded -- adopt schema so cloud achievements are serveable.
     if (!f.good()) {
-        LOG("[Stats] ImportNativeStats app=%u: no native blob (UserGameStats_%u_%u.bin "
-            "absent) -- schema=%zuB so %s", appId, accountId, appId, out.schema.size(),
-            out.schema.empty() ? "FAIL (no schema either)" : "adopt schema only");
+        if (!out.schema.empty())
+            LOG("[Stats] ImportNativeStats app=%u: no native blob, adopt schema only (%zuB)",
+                appId, out.schema.size());
         return !out.schema.empty();
     }
     std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)),
@@ -1214,11 +1227,11 @@ static bool MergeCloudBlobLocked(uint32_t appId, AppStats& out, bool haveLocal) 
             out.schema = std::move(cloudStats.schema);
     }
     g_cloudBlobMerged.insert(appId);
-    // Catches the DOOM-class case (cloud holds more unlocks than local) -- the merged
-    // store must be the union (>= both).
-    LOG("[Stats] CloudBlob merge app=%u: local=%zu cloud=%zu -> %zu unlocked%s",
-        appId, localHad, cloudHad, CountUnlockedAchievements(out.achievements),
-        cloudHad > localHad ? " (cloud had more)" : "");
+    size_t haveAfter = CountUnlockedAchievements(out.achievements);
+    if (haveAfter != localHad || cloudHad > localHad)
+        LOG("[Stats] CloudBlob merge app=%u: local=%zu cloud=%zu -> %zu unlocked%s",
+            appId, localHad, cloudHad, haveAfter,
+            cloudHad > localHad ? " (cloud had more)" : "");
     return true;
 }
 
@@ -1351,10 +1364,6 @@ static void EnsureNativeImportLocked(uint32_t appId, AppStats& stats) {
     if (!stats.stats.empty() && !stats.schema.empty()) return;
     // Retry if schema is still missing (may have been written after first try).
     if (g_importAttempted.count(appId) && !stats.schema.empty()) return;
-    LOG("[Stats] EnsureNativeImport app=%u: stats=%zu schema=%zuB attempted=%d accountReady=%d",
-        appId, stats.stats.size(), stats.schema.size(),
-        (int)g_importAttempted.count(appId),
-        (g_accountIdProvider && g_accountIdProvider() != 0) ? 1 : 0);
     if (!g_accountIdProvider || g_accountIdProvider() == 0) {
         // accountId not ready yet (not logged in) -- don't mark attempted; retry later.
         return;
@@ -1438,12 +1447,15 @@ static AppStats& GetOrCreateLocked(uint32_t appId) {
     auto it = g_cache.find(appId);
     if (it != g_cache.end()) {
         // Late-merge cloud blob if not yet absorbed this fetch cycle.
-        if (!g_cloudBlobMerged.count(appId) &&
-            MergeCloudBlobLocked(appId, it->second, /*haveLocal=*/true)) {
-            it->second.crcStats = ComputeCrcLocked(it->second);
-            WriteAppStats(appId, it->second, false);
-            LOG("[Stats] Late-merged app %u from cloud blob (%zu ach block(s), schema=%zu)",
-                appId, it->second.achievements.size(), it->second.schema.size());
+        if (!g_cloudBlobMerged.count(appId)) {
+            uint32_t crcBefore = it->second.crcStats;
+            if (MergeCloudBlobLocked(appId, it->second, /*haveLocal=*/true)) {
+                it->second.crcStats = ComputeCrcLocked(it->second);
+                WriteAppStats(appId, it->second, false);
+                if (it->second.crcStats != crcBefore)
+                    LOG("[Stats] Late-merged app %u from cloud blob (%zu ach block(s), schema=%zu)",
+                        appId, it->second.achievements.size(), it->second.schema.size());
+            }
         }
         // Ensure native stats are imported on first actual stats access (and on
         // later retries once accountId is ready).
@@ -1677,6 +1689,8 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
         }
         if (acct == 0) {
             LOG("[Stats] SeedApps: no accountId after 30 s, aborting");
+            g_seedDone.store(true, std::memory_order_release);
+            g_seedCv.notify_all();
             return;
         }
         ResetForAccountSwitch(acct);
@@ -1701,6 +1715,18 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // SeedApps also materializes imported native stats; flush the account blob
     // once so newly-seeded local stats reach the cloud.
     PushAccountBlobIfDirty();
+
+    // Signal waiters (HandleGetUserStats blocks until seed completes).
+    g_seedDone.store(true, std::memory_order_release);
+    g_seedCv.notify_all();
+    LOG("[Stats] SeedApps complete (%zu app(s)); waiters released", appIds.size());
+}
+
+bool WaitForSeed(uint32_t timeoutMs) {
+    if (g_seedDone.load(std::memory_order_acquire)) return true;
+    std::unique_lock<std::mutex> lock(g_seedMutex);
+    return g_seedCv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                             [] { return g_seedDone.load(std::memory_order_acquire); });
 }
 
 void RetryNativeImportsAfterLogin() {
@@ -2032,6 +2058,11 @@ PlaytimeData GetPlaytime(uint32_t appId) {
 #endif
     }
     return pt;
+}
+
+uint32_t GetDiskAccountId() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_diskAccountId;
 }
 
 std::vector<uint32_t> GetTrackedApps() {

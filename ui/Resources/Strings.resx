@@ -1707,7 +1707,7 @@ Are you sure?</value>
     <value>Concurrent Upload Size</value>
   </data>
   <data name="CloudProvider_UploadInFlightHint" xml:space="preserve">
-    <value>Controls megabytes of files uploading at once. Increasing WILL NOT speed up loads, but increasing it can make multiple large saves fail to upload. Changes are not recommended.</value>
+    <value>Controls the maximum file size of concurrent uploads. Increasing WILL NOT speed up loads, but increasing it can make multiple large saves fail to upload. Changes are not recommended. Only change if you know what you are doing.</value>
   </data>
   <data name="CloudProvider_UploadInFlightValue" xml:space="preserve">
     <value>{0} MB</value>

@@ -65,6 +65,10 @@ bool VtableHookInstalled();
 void SetNeedsSeed(bool v);
 void TriggerDeferredSeed(const std::vector<uint32_t>& apps);
 
+// Drain queued playtime updates (live push into CUser map).
+// Caller MUST be on Steam's network thread (slot4/slot5 hook context).
+void DrainPlaytimeUpdates();
+
 // signal shutdown
 void Shutdown();
 

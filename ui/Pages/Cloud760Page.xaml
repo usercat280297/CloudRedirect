@@ -12,7 +12,7 @@
                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                        Margin="0,0,0,8" />
 
-            <TextBlock Text="View and delete the saves SteamTools wrote to 760 (Steam Screenshots). This will stop SteamTools from redownloading those saves when run without CloudRedirect patches, contaminating your userdata folder for each injected game."
+            <TextBlock Text="View and delete the saves SteamTools wrote to 760 (Steam Screenshots). This will stop SteamTools from redownloading those saves when run without CloudRedirect patches, preventing SteamTools from contaminating the userdata of each injected game."
                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                        TextWrapping="Wrap"
                        Margin="0,0,0,20" />

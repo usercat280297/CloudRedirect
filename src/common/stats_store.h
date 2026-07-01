@@ -97,6 +97,10 @@ void SetNamespacePredicate(NamespacePredicate pred);
 // GetLastPlayedTimes has data before launch. Requires a logged-in accountId.
 void SeedApps(const std::vector<uint32_t>& appIds);
 
+// Block until SeedApps completes (or timeout expires). Returns true if seed
+// finished, false on timeout. Safe to call from any thread.
+bool WaitForSeed(uint32_t timeoutMs);
+
 // Retry native imports for namespace apps with an on-disk schema that the
 // boot-time sweep skipped (accountId not yet known). Flags dirty, no push.
 void RetryNativeImportsAfterLogin();
@@ -149,6 +153,7 @@ void CaptureNativeUnlocks(uint32_t appId);
 void StartSession(uint32_t appId);
 void EndSession(uint32_t appId);
 PlaytimeData GetPlaytime(uint32_t appId);
+uint32_t GetDiskAccountId();
 
 // Enumerate appIds that have any tracked playtime (for GetLastPlayedTimes).
 std::vector<uint32_t> GetTrackedApps();

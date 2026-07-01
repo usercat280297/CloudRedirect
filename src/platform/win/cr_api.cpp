@@ -120,6 +120,7 @@ bool CR_HandleCloudRpc(const char* method, uint32_t appId,
                 }).detach();
             }
             LOG("[CR_API] ExitSyncDone app=%u", appId);
+            StatsStore::EndSession(appId);
         }
         *respLen = 0;
         *eresult = 1;
@@ -154,6 +155,11 @@ bool CR_IsApp(uint32_t appId) {
     return CloudIntercept::IsNamespaceApp(appId);
 }
 
+void CR_SetAccountId(uint32_t accountId) {
+    if (accountId == 0) return;
+    CloudIntercept::SetAccountId(accountId);
+}
+
 void CR_SetApps(const uint32_t* appIds, uint32_t count) {
     if (count != 0 && appIds == nullptr) count = 0;
     size_t added = 0, removed = 0;
@@ -168,6 +174,11 @@ void CR_SetApps(const uint32_t* appIds, uint32_t count) {
         std::vector<uint32_t> apps(appIds, appIds + count);
         CloudIntercept::TriggerDeferredSeed(apps);
     }
+}
+
+void CR_DrainPlaytimeUpdates(void) {
+    if (g_crInitDone.load(std::memory_order_acquire))
+        CloudIntercept::DrainPlaytimeUpdates();
 }
 
 void CR_Shutdown(void) {

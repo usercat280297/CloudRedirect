@@ -95,7 +95,7 @@
                     <StackPanel>
                         <TextBlock Text="...and more!" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                        <TextBlock Text="Bug fixes, performance improvements, and under-the-hood changes to keep your cloud saves safe and fast."
+                        <TextBlock Text="Bug fixes, Google Drive performance improvements, preparation work for future updates, unannounced features sprinkled throughout the CR UI. Fun for all!"
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                     </StackPanel>

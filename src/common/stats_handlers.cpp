@@ -38,6 +38,11 @@ CloudIntercept::RpcResult HandleGetUserStats(uint32_t appId, const std::vector<P
 
     LOG("[Stats] GetUserStats app=%u clientCrc=%u", appId, clientCrc);
 
+    if (MetadataSync::syncAchievements.load(std::memory_order_relaxed)) {
+        if (!StatsStore::WaitForSeed(10000))
+            LOG("[Stats] GetUserStats app=%u: seed timed out after 10 s", appId);
+    }
+
     // Snapshot: thread-safe copy taken under the store lock.
     StatsStore::AppStats stats = StatsStore::Snapshot(appId);
 
