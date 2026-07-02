@@ -497,8 +497,19 @@ static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string
             if (vdfPlaytime > 0) {
                 uint64_t otherTotal = 0;
                 for (const auto& [dev, dp] : stats.playtime.perDevice) {
-                    if (dev == kMigratedBucket) continue;
-                    otherTotal += (uint64_t)dp.windows + dp.mac + dp.lin;
+                    if (dev == kMigratedBucket) {
+                        // Include other platforms' fields from the migrated bucket
+                        // to prevent double-counting across platforms.
+#ifdef _WIN32
+                        otherTotal += (uint64_t)dp.mac + dp.lin;
+#elif defined(__APPLE__)
+                        otherTotal += (uint64_t)dp.windows + dp.lin;
+#else
+                        otherTotal += (uint64_t)dp.windows + dp.mac;
+#endif
+                    } else {
+                        otherTotal += (uint64_t)dp.windows + dp.mac + dp.lin;
+                    }
                 }
                 uint32_t shortfall = (vdfPlaytime > otherTotal)
                     ? (uint32_t)(vdfPlaytime - otherTotal) : 0u;
@@ -1547,10 +1558,20 @@ static void ApplyLegacyPlaytime(uint32_t appId, uint32_t mins,
     AppStats& stats = GetOrCreateLocked(appId);
 
     // Total already represented by every bucket OTHER than the migrated one.
+    // Includes other platforms' fields from the migrated bucket to prevent double-counting.
     uint64_t otherTotal = 0;
     for (const auto& [dev, dp] : stats.playtime.perDevice) {
-        if (dev == kMigratedBucket) continue;
-        otherTotal += (uint64_t)dp.windows + dp.mac + dp.lin;
+        if (dev == kMigratedBucket) {
+#ifdef _WIN32
+            otherTotal += (uint64_t)dp.mac + dp.lin;
+#elif defined(__APPLE__)
+            otherTotal += (uint64_t)dp.windows + dp.lin;
+#else
+            otherTotal += (uint64_t)dp.windows + dp.mac;
+#endif
+        } else {
+            otherTotal += (uint64_t)dp.windows + dp.mac + dp.lin;
+        }
     }
     // Only the part of the .bin total not already covered elsewhere.
     uint32_t shortfall = (mins > otherTotal) ? (uint32_t)(mins - otherTotal) : 0u;
