@@ -1,4 +1,5 @@
 #include "log.h"
+#include "xdg.h"
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
@@ -11,18 +12,16 @@ static std::mutex g_logMutex;
 
 void Log::Init()
 {
-    const char* home = getenv("HOME");
-    if (!home) home = "/tmp";
+    std::string base = XdgConfigHome() + "/CloudRedirect";
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s", XdgConfigHome().c_str());
+    mkdir(dir, 0755);
+    snprintf(dir, sizeof(dir), "%s", base.c_str());
+    mkdir(dir, 0755);
 
     char path[512];
-    snprintf(path, sizeof(path), "%s/.config/CloudRedirect/cloud_redirect.log", home);
-
-    // Create directory if missing
-    char dir[512];
-    snprintf(dir, sizeof(dir), "%s/.config", home);
-    mkdir(dir, 0755);
-    snprintf(dir, sizeof(dir), "%s/.config/CloudRedirect", home);
-    mkdir(dir, 0755);
+    snprintf(path, sizeof(path), "%s/cloud_redirect.log", base.c_str());
 
     g_logFile = fopen(path, "a");
     if (g_logFile) {

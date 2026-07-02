@@ -16,6 +16,7 @@ const char* CR_GetVersion() { return CR_VERSION_STRING; }
 #include "log.h"
 #include "rpc_handlers.h"
 #include "steam_kv_injector.h"
+#include "xdg.h"
 
 #include <dlfcn.h>
 #include <unistd.h>
@@ -47,10 +48,7 @@ static char g_crashContext[192] = "none";
 static void DebugLog(const char* msg)
 {
     if (g_debugFd < 0) {
-        const char* home = getenv("HOME");
-        std::string path = home && home[0]
-            ? std::string(home) + "/.config/CloudRedirect/cr_debug.log"
-            : "/tmp/cr_debug.log";
+        std::string path = XdgConfigHome() + "/CloudRedirect/cr_debug.log";
         g_debugFd = open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
     }
     if (g_debugFd >= 0)
@@ -84,10 +82,7 @@ static void EnsureLogInit()
 // parser is available). Returns defaultVal if the key is absent.
 static bool ReadConfigBool(const char* key, bool defaultVal)
 {
-    const char* home = getenv("HOME");
-    if (!home || !home[0]) return defaultVal;
-
-    std::string configPath = std::string(home) + "/.config/CloudRedirect/config.json";
+    std::string configPath = XdgConfigHome() + "/CloudRedirect/config.json";
     FILE* f = fopen(configPath.c_str(), "r");
     if (!f) return defaultVal;
 
@@ -174,11 +169,10 @@ static void DoInit()
     Log::Info("CloudRedirect build %s", CR_VERSION_STRING);
 
     // Kill-switch: if disable file exists, bail without hooking
-    const char* home = getenv("HOME");
-    if (home) {
-        std::string disablePath = std::string(home) + "/.config/CloudRedirect/disable";
+    {
+        std::string disablePath = XdgConfigHome() + "/CloudRedirect/disable";
         if (access(disablePath.c_str(), F_OK) == 0) {
-            DebugLog("[CR] DoInit: kill-switch active (~/.config/CloudRedirect/disable exists), aborting\n");
+            DebugLog("[CR] DoInit: kill-switch active (CloudRedirect/disable exists), aborting\n");
             Log::Warn("Kill-switch active, skipping all hooks");
             return;
         }

@@ -29,6 +29,7 @@
 #else
 #include <unistd.h>
 #include <pwd.h>
+#include "xdg.h"
 #endif
 
 namespace CloudRedirectCli {
@@ -47,13 +48,7 @@ static std::string GetConfigDir() {
     }
     return "";
 #else
-    const char* home = getenv("HOME");
-    if (!home) {
-        struct passwd* pw = getpwuid(getuid());
-        if (pw) home = pw->pw_dir;
-    }
-    if (!home) return "";
-    return std::string(home) + "/.config/CloudRedirect/";
+    return XdgConfigHome() + "/CloudRedirect/";
 #endif
 }
 

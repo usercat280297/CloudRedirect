@@ -20,6 +20,7 @@
 #include "protobuf.h"
 #include "json.h"
 #include "log.h"
+#include "xdg.h"
 
 #include <cstring>
 #include <climits>
@@ -302,13 +303,7 @@ static void EnsureInitialized() {
         // Initialize the intercept layer (parses SLSsteam config, loginusers.vdf)
         CloudIntercept::InitLinux();
 
-        const char* home = getenv("HOME");
-        if (!home || home[0] == '\0') {
-            LOG("[Linux] FATAL: HOME environment variable not set, cannot initialize storage");
-            g_initFailed.store(true, std::memory_order_release);
-            return;
-        }
-        std::string cloudRedirectRoot = std::string(home) + "/.config/CloudRedirect/";
+        std::string cloudRedirectRoot = XdgConfigHome() + "/CloudRedirect/";
         std::string storageRoot = cloudRedirectRoot + "storage";
 
         // Initialize CloudStorage with cloud provider from config.json

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <sys/inotify.h>
 #include "yaml_parser.h"
+#include "xdg.h"
 
 static std::string g_steamPath;
 static std::string g_homePath;
@@ -26,13 +27,7 @@ static std::atomic<int> g_watcherFd{-1};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-static std::string GetHome() {
-    const char* home = getenv("HOME");
-    if (home && home[0]) return home;
-    struct passwd* pw = getpwuid(getuid());
-    if (pw && pw->pw_dir) return pw->pw_dir;
-    return "/tmp";
-}
+static std::string GetHome() { return XdgHome(); }
 
 static std::string DetectSteamPath() {
     std::string home = GetHome();
@@ -85,7 +80,7 @@ static std::string LoadNamespaceAppsFromSLSsteam() {
     std::string home = GetHome();
 
     std::vector<std::string> configPaths = {
-        home + "/.config/SLSsteam/config.yaml",
+        XdgConfigHome() + "/SLSsteam/config.yaml",
         home + "/.var/app/com.valvesoftware.Steam/.config/SLSsteam/config.yaml",
     };
 

@@ -51,7 +51,7 @@ static void copyDir(const QString &src, const QString &dst, QJsonArray &undoOps,
 
 static QString backupRootForAccount(const QString &accountId)
 {
-    return QDir::cleanPath(realHomePath() + "/.config/CloudRedirect/backups/" + accountId);
+    return QDir::cleanPath(crConfigDir() + "/backups/" + accountId);
 }
 
 static bool isPathWithin(const QString &root, const QString &path)
@@ -105,10 +105,10 @@ void Backend::detectSteamPath()
             m_steamPath = home + "/.steam/steam";
     }
 
-    m_storagePath = home + "/.config/CloudRedirect/storage";
+    m_storagePath = crConfigDir() + "/storage";
 
     m_deployed = false;
-    QString crPath = home + "/.local/share/CloudRedirect/cloud_redirect.so";
+    QString crPath = crDataDir() + "/cloud_redirect.so";
     m_deployed = QFile::exists(crPath);
 
     // Parse account ID from loginusers.vdf
@@ -220,7 +220,7 @@ void Backend::loadSLSsteamApps()
     QString home = realHomePath();
 
     QStringList configPaths = {
-        home + "/.config/SLSsteam/config.yaml",
+        xdgConfigHome() + "/SLSsteam/config.yaml",
         home + "/.var/app/com.valvesoftware.Steam/.config/SLSsteam/config.yaml",
     };
 
@@ -267,7 +267,7 @@ void Backend::loadSLSsteamApps()
 
 void Backend::loadConfig()
 {
-    QString configPath = realHomePath() + "/.config/CloudRedirect/config.json";
+    QString configPath = crConfigDir() + "/config.json";
     fprintf(stderr, "[Backend] loadConfig from: %s\n", configPath.toUtf8().constData());
     QFile f(configPath);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -304,7 +304,7 @@ void Backend::loadConfig()
     }
 
     // Load store cache (names and header URLs)
-    QString cachePath = realHomePath() + "/.config/CloudRedirect/store_cache.json";
+    QString cachePath = crConfigDir() + "/store_cache.json";
     QFile cacheFile(cachePath);
     if (cacheFile.open(QIODevice::ReadOnly)) {
         QJsonDocument cacheDoc = QJsonDocument::fromJson(cacheFile.readAll());
@@ -339,7 +339,7 @@ void Backend::loadConfig()
 
 void Backend::saveConfig()
 {
-    QString configDir = realHomePath() + "/.config/CloudRedirect";
+    QString configDir = crConfigDir();
     QDir().mkpath(configDir);
 
     QString configPath = configDir + "/config.json";
@@ -485,7 +485,7 @@ void Backend::deleteAppData(uint appId)
 
     QString appDir = m_storagePath + "/" + m_accountId + "/" + QString::number(appId);
     QString userdataDir = m_steamPath + "/userdata/" + m_accountId + "/" + QString::number(appId);
-    QString backupRoot = realHomePath() + "/.config/CloudRedirect/backups/" + m_accountId;
+    QString backupRoot = crConfigDir() + "/backups/" + m_accountId;
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
     QString backupDir = backupRoot + "/" + QString::number(appId) + "_" + timestamp;
 
@@ -635,7 +635,7 @@ void Backend::resolveAppNames()
         }
 
         // Save cache
-        QString cachePath = realHomePath() + "/.config/CloudRedirect/store_cache.json";
+        QString cachePath = crConfigDir() + "/store_cache.json";
         QJsonObject cacheObj;
         for (auto it = m_nameCache.begin(); it != m_nameCache.end(); ++it) {
             QJsonObject entry;
@@ -668,7 +668,7 @@ void Backend::refreshStatus()
 
 QString Backend::defaultTokenPath(const QString &provider) const
 {
-    return realHomePath() + "/.config/CloudRedirect/tokens_" + provider + ".json";
+    return crConfigDir() + "/tokens_" + provider + ".json";
 }
 
 void Backend::startOAuth(const QString &provider)
@@ -683,7 +683,7 @@ void Backend::startOAuth(const QString &provider)
 
 void Backend::openLogFile()
 {
-    QString logPath = realHomePath() + "/.config/CloudRedirect/cloud_redirect.log";
+    QString logPath = crConfigDir() + "/cloud_redirect.log";
     if (QFile::exists(logPath)) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(logPath));
     }
@@ -691,7 +691,7 @@ void Backend::openLogFile()
 
 void Backend::openConfigFolder()
 {
-    QString configPath = realHomePath() + "/.config/CloudRedirect";
+    QString configPath = crConfigDir();
     QDir().mkpath(configPath);
     QDesktopServices::openUrl(QUrl::fromLocalFile(configPath));
 }
@@ -1475,7 +1475,7 @@ bool Backend::shouldOfferAutoUpdates() const
         return false;
 
     // Check if user already dismissed
-    QString configPath = realHomePath() + "/.config/CloudRedirect/config.json";
+    QString configPath = crConfigDir() + "/config.json";
     QFile f(configPath);
     if (f.open(QIODevice::ReadOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
@@ -1530,7 +1530,7 @@ void Backend::enableAutoUpdates()
 void Backend::dismissAutoUpdatePrompt()
 {
     // Set flag in config
-    QString configPath = realHomePath() + "/.config/CloudRedirect/config.json";
+    QString configPath = crConfigDir() + "/config.json";
     QJsonObject obj;
 
     QFile f(configPath);
@@ -1542,7 +1542,7 @@ void Backend::dismissAutoUpdatePrompt()
 
     obj["auto_update_prompted"] = true;
 
-    QDir().mkpath(realHomePath() + "/.config/CloudRedirect");
+    QDir().mkpath(crConfigDir());
     QString tempPath = configPath + ".tmp";
     QFile tmp(tempPath);
     if (tmp.open(QIODevice::WriteOnly)) {
