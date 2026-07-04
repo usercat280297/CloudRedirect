@@ -2,6 +2,8 @@
 
 ""Steam Cloud"" for 'lua' games.
 
+**This the only official website for CloudRedirect. Any other websites are not operated by me or are otherwise endorsed by this project.**
+
 > ****This software is experimental and under active development.**** The underlying techniques are fairly insane. What this software tries to do is nuts to attempt. This software could damage your save files and probably will! It could overwrite your saves, cause weird conflicts, make your saves disappear, make you cry. Back up any saves you care about before using this software.
 
 But it probably won't. It's been very solid for a long time.
