@@ -38,8 +38,8 @@ public partial class MainWindow : FluentWindow
                     RootNavigation.Navigate(typeof(Pages.ChoiceModePage));
                 else if (needsSetup)
                     RootNavigation.Navigate(typeof(Pages.SetupPage));
-                else if (ShouldShowNews())
-                    RootNavigation.Navigate(typeof(Pages.NewsPage));
+                // else if (ShouldShowNews())
+                //     RootNavigation.Navigate(typeof(Pages.NewsPage));
                 else
                     RootNavigation.Navigate(typeof(Pages.DashboardPage));
             }
