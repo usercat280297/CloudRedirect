@@ -114,12 +114,10 @@ static bool RefreshCloudBlobCache() {
     if (g_isNamespaceApp) {
         size_t before = fetched.size();
         for (auto it = fetched.begin(); it != fetched.end(); ) {
-            if (!g_isNamespaceApp(it->first)) {
-                LOG("[Stats] Cloud blob: DROPPED app %u (not a namespace app for this account)", it->first);
+            if (!g_isNamespaceApp(it->first))
                 it = fetched.erase(it);
-            } else {
+            else
                 ++it;
-            }
         }
         if (fetched.size() != before)
             LOG("[Stats] Cloud blob decontamination: %zu -> %zu app(s)", before, fetched.size());
@@ -131,20 +129,16 @@ static bool RefreshCloudBlobCache() {
     if (firstRefresh || g_cloudBlobByApp.size() != prevCount)
         LOG("[Stats] Cloud blob refreshed: %zu app(s)", g_cloudBlobByApp.size());
     if (firstRefresh) {
+        size_t appsWithData = 0;
         for (const auto& [appId, json] : g_cloudBlobByApp) {
             AppStats cs;
-            if (!ParseAppStatsJson(json, cs)) {
-                LOG("[Stats]   cloud[%u]: PARSE FAILED (%zu bytes)", appId, json.size());
-                continue;
-            }
-            size_t unlocked = 0;
-            for (const auto& a : cs.achievements)
-                for (int i = 0; i < 32; i++) if (a.unlockTimes[i]) unlocked++;
+            if (!ParseAppStatsJson(json, cs)) continue;
             if (!cs.achievements.empty() || !cs.stats.empty() || cs.playtime.minutesForever)
-                LOG("[Stats]   cloud[%u]: ach_blocks=%zu unlocked=%zu stats=%zu schema=%zuB forever=%umin",
-                    appId, cs.achievements.size(), unlocked, cs.stats.size(),
-                    cs.schema.size(), cs.playtime.minutesForever);
+                appsWithData++;
         }
+        if (appsWithData)
+            LOG("[Stats] Cloud blob: %zu/%zu app(s) have stats/playtime data",
+                appsWithData, g_cloudBlobByApp.size());
         firstRefresh = false;
     }
     return true;
@@ -460,7 +454,6 @@ static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string
             // server-tracked playtime and are never reconciled or synced.
             bool isNs = g_isNamespaceApp && g_isNamespaceApp(appId);
             if (!isNs) return true;
-            LOG("[Stats] Reconcile: considering app %u (ns=1)", appId);
 
             std::string appIdStr = std::to_string(appId);
             const char* appPath[] = {"UserLocalConfigStore", "Software", "Valve", "Steam", appsKey, appIdStr.c_str()};
@@ -533,10 +526,6 @@ static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string
 
             WriteAppStats(appId, stats, false, /*bypassDiskMerge=*/true);
             reconciled++;
-            LOG("[Stats] Reconciled app %u lastPlayed=%u (win=%u mac=%u linux=%u, migrated=%u)",
-                appId, vdfLastPlayed,
-                stats.playtime.playtimeWindows, stats.playtime.playtimeMac,
-                stats.playtime.playtimeLinux, vdfPlaytime);
             return true;
         });
     if (reconciled > 0) {
@@ -701,7 +690,6 @@ static bool ImportNativeStats(uint32_t appId, AppStats& out) {
         if (sf.good()) {
             out.schema.assign(std::istreambuf_iterator<char>(sf),
                               std::istreambuf_iterator<char>());
-            LOG("[Stats] ImportNativeStats app=%u: schema read %zuB", appId, out.schema.size());
         }
         // Refresh schema from Steam's server (picks up newly-added achievements).
         if (g_schemaMissingCb)
@@ -712,34 +700,22 @@ static bool ImportNativeStats(uint32_t appId, AppStats& out) {
     fs::path statsPath = FileUtil::Utf8ToPath(g_steamPath) / "appcache" / "stats"
         / ("UserGameStats_" + std::to_string(accountId) + "_" + std::to_string(appId) + ".bin");
     std::ifstream f(statsPath, std::ios::binary);
-    // No native blob but schema loaded -- adopt schema so cloud achievements are serveable.
-    if (!f.good()) {
-        if (!out.schema.empty())
-            LOG("[Stats] ImportNativeStats app=%u: no native blob, adopt schema only (%zuB)",
-                appId, out.schema.size());
+    if (!f.good())
         return !out.schema.empty();
-    }
     std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)),
                               std::istreambuf_iterator<char>());
     f.close();
-    if (blob.empty()) {
-        LOG("[Stats] ImportNativeStats app=%u: native blob is empty (0 bytes)", appId);
+    if (blob.empty())
         return !out.schema.empty();
-    }
 
     size_t pos = 0, nodeCount = 0;
     std::vector<BkvNode> root;
-    if (!BkvRead(blob.data(), blob.size(), pos, root, 0, nodeCount)) {
-        LOG("[Stats] ImportNativeStats app=%u: BKV parse failed (%zu bytes)", appId, blob.size());
+    if (!BkvRead(blob.data(), blob.size(), pos, root, 0, nodeCount))
         return !out.schema.empty();
-    }
 
     const BkvNode* cache = BkvFind(root, "cache");
-    if (!cache) {
-        LOG("[Stats] ImportNativeStats app=%u: no 'cache' node in native blob (%zu bytes)",
-            appId, blob.size());
+    if (!cache)
         return !out.schema.empty();
-    }
 
     // Parse the schema (if present) for human-readable achievement names and
     // per-stat merge strategies (type_int / resolution_method).
@@ -800,9 +776,6 @@ static bool ImportNativeStats(uint32_t appId, AppStats& out) {
     }
 
     ReconcileAchievementBits(out.stats, out.achievements);
-    LOG("[Stats] ImportNativeStats app=%u: imported %zu stat(s), %zu achievement block(s) "
-        "(%zu unlocked), schema=%zu bytes", appId, importedStats, importedAch,
-        CountUnlockedAchievements(out.achievements), out.schema.size());
     return importedStats > 0 || !out.schema.empty();
 }
 
@@ -1264,11 +1237,7 @@ bool LoadAppStats(uint32_t appId, AppStats& out) {
     // No per-app network read -- the whole account blob was fetched in one shot.
     if (MergeCloudBlobLocked(appId, out, haveLocal)) {
         haveLocal = true;
-        // Materialize the merged result locally for fast subsequent reads.
         WriteAppStats(appId, out, false);
-        LOG("[Stats] Merged app %u with cloud blob (forever=%u win=%u mac=%u linux=%u)",
-            appId, out.playtime.minutesForever, out.playtime.playtimeWindows,
-            out.playtime.playtimeMac, out.playtime.playtimeLinux);
     }
 
     if (!haveLocal) return false;
@@ -1403,10 +1372,9 @@ static void EnsureNativeImportLocked(uint32_t appId, AppStats& stats) {
         size_t haveAfter = CountUnlockedAchievements(stats.achievements);
         // If cloud (haveBefore) held more than native, the merge must keep the
         // superset -- haveAfter dropping below haveBefore means an unlock was lost.
-        LOG("[Stats] NativeImport merge app=%u: store_had=%zu native_had=%zu -> store_now=%zu "
-            "(stats=%zu schema=%zuB)%s", appId, haveBefore, nativeHas, haveAfter,
-            stats.stats.size(), stats.schema.size(),
-            haveAfter < haveBefore ? " [WARN: unlock regressed]" : "");
+        if (haveAfter < haveBefore)
+            LOG("[Stats] NativeImport merge app=%u: unlock regressed (%zu -> %zu)",
+                appId, haveBefore, haveAfter);
         if (merged || schemaAdopted) {
             stats.crcStats = ComputeCrcLocked(stats);
             g_dirty[appId] = true;
@@ -2105,16 +2073,18 @@ std::unordered_set<uint32_t> ConsumeResetApps() {
 void FlushAll() {
     {
         std::lock_guard<std::mutex> lock(g_mutex);
+        int flushed = 0;
         for (auto& [appId, dirty] : g_dirty) {
             if (dirty) {
                 auto it = g_cache.find(appId);
-                if (it != g_cache.end()) {
-                    SaveAppStats(appId, it->second);  // updates account blob + dirty flag
-                    LOG("[Stats] Flushed app %u to disk", appId);
-                }
+                if (it != g_cache.end())
+                    SaveAppStats(appId, it->second);
                 dirty = false;
+                flushed++;
             }
         }
+        if (flushed)
+            LOG("[Stats] Flushed %d app(s) to disk", flushed);
     }
     // Push the account blob once for all flushed apps (outside the lock).
     PushAccountBlobIfDirty();
