@@ -1115,18 +1115,27 @@ static bool IsLegacyDeviceKey(const std::string& key) {
     return key.rfind("__legacy_", 0) == 0;
 }
 
+// Recomputed each launch from localconfig; never max-merge from external sources.
+static bool IsReconcileOwnedKey(const std::string& key) {
+    return key == "__migrated_localconfig";
+}
+
+static bool IsSyntheticKey(const std::string& key) {
+    return IsLegacyDeviceKey(key) || IsReconcileOwnedKey(key);
+}
+
 // Union-merge playtime (max per device+platform). Legacy-only blobs are discounted
-// by real-device totals to avoid double-counting.
+// by real-device totals; reconcile-owned buckets are never adopted from src.
 static void MergePlaytime(PlaytimeData& dst, const PlaytimeData& src) {
     bool srcHasRealKeys = false;
     for (const auto& [dev, sdp] : src.perDevice) {
-        if (!IsLegacyDeviceKey(dev)) { srcHasRealKeys = true; break; }
+        if (!IsSyntheticKey(dev)) { srcHasRealKeys = true; break; }
     }
     bool srcLegacyOnly = !src.perDevice.empty() && !srcHasRealKeys;
 
     // Union real device keys first (so the discount below sees all of them).
     for (const auto& [dev, sdp] : src.perDevice) {
-        if (IsLegacyDeviceKey(dev)) continue;
+        if (IsSyntheticKey(dev)) continue;
         DevicePlaytime& ddp = dst.perDevice[dev];
         ddp.windows = (std::max)(ddp.windows, sdp.windows);
         ddp.mac     = (std::max)(ddp.mac,     sdp.mac);
@@ -1137,7 +1146,7 @@ static void MergePlaytime(PlaytimeData& dst, const PlaytimeData& src) {
     uint64_t realWin = 0, realMac = 0, realLin = 0;
     if (srcLegacyOnly) {
         for (const auto& [dev, ddp] : dst.perDevice) {
-            if (IsLegacyDeviceKey(dev)) continue;
+            if (IsSyntheticKey(dev)) continue;
             realWin += ddp.windows; realMac += ddp.mac; realLin += ddp.lin;
         }
     }
@@ -1146,6 +1155,7 @@ static void MergePlaytime(PlaytimeData& dst, const PlaytimeData& src) {
     };
 
     for (const auto& [dev, sdp] : src.perDevice) {
+        if (IsReconcileOwnedKey(dev)) continue;   // never adopt from external source
         if (!IsLegacyDeviceKey(dev)) continue;
         DevicePlaytime eff = sdp;
         if (srcLegacyOnly) {
